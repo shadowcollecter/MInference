@@ -71,7 +71,11 @@ def parse_args() -> Namespace:
     p.add_argument(
         "--attn_type",
         type=str,
-        choices=MInferenceConfig.get_available_attn_types(),
+        # 原本只用 MInferenceConfig.get_available_attn_types(); 這裡動態附加自訂模式
+        choices=MInferenceConfig.get_available_attn_types() + [
+            "vllm_blend",
+            "vllm_kv",
+        ],
         default="hf",
     )
     p.add_argument(
