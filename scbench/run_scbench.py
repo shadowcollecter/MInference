@@ -46,11 +46,23 @@ from transformers.utils.import_utils import _is_package_available
 
 if _is_package_available("vllm"):
     from vllm import LLM, SamplingParams
-if _is_package_available("lmcache_vllm"):
-    from lmcache_vllm.vllm import LLM as LMCacheLLM
-    import lmcache_vllm
 
-import random
+# 新增：同時支援 lmcache 與 lmcache_vllm
+LMCacheLLM = None
+_lmcache_mod = None
+try:
+    if _is_package_available("lmcache_vllm"):
+        from lmcache_vllm.vllm import LLM as LMCacheLLM
+        import lmcache_vllm as _lmcache_mod
+    elif _is_package_available("lmcache"):
+        # 嘗試兩種可能的 layout
+        try:
+            from lmcache.vllm import LLM as LMCacheLLM
+        except ImportError:
+            from lmcache import LLM as LMCacheLLM
+        import lmcache as _lmcache_mod
+except Exception as _e:
+    print(f"[Warn] 無法載入 lmcache: {_e}")
 
 from minference import MInference
 
@@ -158,17 +170,53 @@ def load_model(
         )
     # tok.pad_token = tok.eos_token
 
+    hp = hyper_param or {}
+
     if attn_type == "vllm_blend":
-        llm = LMCacheLLM(
-            model=model_name,
-            enable_prefix_caching=True,
-            max_model_len=max_seq_length,
-            tensor_parallel_size=tensor_parallel_size,
-            enable_chunked_prefill=False,
-            trust_remote_code=trust_remote_code,
-            gpu_memory_utilization=0.5,
-            swap_space=64,
+        # 1. 讀 kv_transfer_config（若沒給就用你原本 serve 的預設）
+        kv_transfer_config = hp.get(
+            "kv_transfer_config",
+            {"kv_connector": "LMCacheConnectorV1", "kv_role": "kv_both"},
         )
+        gpu_mem = hp.get("gpu_memory_utilization", 0.5)
+
+        # 2. 允許外部用環境變數指定:
+        #    LMCACHE_CONFIG_FILE / LMCACHE_USE_EXPERIMENTAL
+        #    若想在程式強制，可在這裡 setdefault
+        if "lmcache_config_file" in hp:
+            os.environ.setdefault("LMCACHE_CONFIG_FILE", hp["lmcache_config_file"])
+        if "lmcache_experimental" in hp:
+            os.environ.setdefault(
+                "LMCACHE_USE_EXPERIMENTAL", str(hp["lmcache_experimental"])
+            )
+
+        if LMCacheLLM is not None:
+            print("[Info] 使用 LMCacheLLM (direct) 啟動 vllm_blend")
+            llm = LMCacheLLM(
+                model=model_name,
+                enable_prefix_caching=True,
+                max_model_len=max_seq_length,
+                tensor_parallel_size=tensor_parallel_size,
+                enable_chunked_prefill=False,
+                trust_remote_code=trust_remote_code,
+                gpu_memory_utilization=gpu_mem,
+                swap_space=64,
+                kv_transfer_config=kv_transfer_config,  # 傳入
+            )
+        else:
+            print(
+                "[Info] 找不到 LMCacheLLM，改用原生 LLM + kv_transfer_config (需要已安裝 lmcache 擴充)"
+            )
+            llm = LLM(
+                model=model_name,
+                enable_prefix_caching=True,
+                max_model_len=max_seq_length,
+                tensor_parallel_size=tensor_parallel_size,
+                enable_chunked_prefill=False,
+                trust_remote_code=trust_remote_code,
+                swap_space=64,
+                kv_transfer_config=kv_transfer_config,
+            )
         llm = GreedySearch_vLLM(llm, tok)
     elif attn_type == "vllm_kv":
         llm = LLM(
@@ -446,6 +494,8 @@ if __name__ == "__main__":
     print("==== Results ====")
     print(json.dumps(results, indent=2))
     try:
-        lmcache_vllm.close_lmcache_engine()
-    except:
-        pass
+        # 改成安全關閉 (不論 lmcache 或 lmcache_vllm)
+        if _lmcache_mod and hasattr(_lmcache_mod, "close_lmcache_engine"):
+            _lmcache_mod.close_lmcache_engine()
+    except Exception as e:
+        print(f"[Warn] 關閉 lmcache engine 失敗: {e}")
