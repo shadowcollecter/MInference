@@ -173,12 +173,13 @@ def load_model(
     hp = hyper_param or {}
 
     if attn_type == "vllm_blend":
-        # 1. 讀 kv_transfer_config（若沒給就用你原本 serve 的預設）
-        kv_transfer_config = hp.get(
-            "kv_transfer_config",
-            {"kv_connector": "LMCacheConnectorV1", "kv_role": "kv_both"},
-        )
-        gpu_mem = hp.get("gpu_memory_utilization", 0.5)
+        # 僅在 hyper_param 有提供時才傳遞，否則讓 vLLM/LMCache 使用其內建預設值
+        kv_transfer_config = hp.get("kv_transfer_config")
+        gpu_mem = hp.get("gpu_memory_utilization")
+        enable_prefix_caching = hp.get("enable_prefix_caching")
+        num_gpu_blocks_override = hp.get("num_gpu_blocks_override")
+        kv_cache_dtype = hp.get("kv_cache_dtype")
+        max_num_seqs = hp.get("max_num_seqs")
 
         # 2. 允許外部用環境變數指定:
         #    LMCACHE_CONFIG_FILE / LMCACHE_USE_EXPERIMENTAL
@@ -192,31 +193,52 @@ def load_model(
 
         if LMCacheLLM is not None:
             print("[Info] 使用 LMCacheLLM (direct) 啟動 vllm_blend")
-            llm = LMCacheLLM(
+            llm_kwargs = dict(
                 model=model_name,
-                enable_prefix_caching=True,
                 max_model_len=max_seq_length,
                 tensor_parallel_size=tensor_parallel_size,
                 enable_chunked_prefill=False,
                 trust_remote_code=trust_remote_code,
-                gpu_memory_utilization=gpu_mem,
                 swap_space=64,
-                kv_transfer_config=kv_transfer_config,  # 傳入
             )
+            if enable_prefix_caching is not None:
+                llm_kwargs["enable_prefix_caching"] = enable_prefix_caching
+            if gpu_mem is not None:
+                llm_kwargs["gpu_memory_utilization"] = gpu_mem
+            if kv_transfer_config is not None:
+                llm_kwargs["kv_transfer_config"] = kv_transfer_config
+            if num_gpu_blocks_override is not None:
+                llm_kwargs["num_gpu_blocks_override"] = num_gpu_blocks_override
+            if kv_cache_dtype is not None:
+                llm_kwargs["kv_cache_dtype"] = kv_cache_dtype
+            if max_num_seqs is not None:
+                llm_kwargs["max_num_seqs"] = max_num_seqs
+            llm = LMCacheLLM(**llm_kwargs)
         else:
             print(
                 "[Info] 找不到 LMCacheLLM，改用原生 LLM + kv_transfer_config (需要已安裝 lmcache 擴充)"
             )
-            llm = LLM(
+            llm_kwargs = dict(
                 model=model_name,
-                enable_prefix_caching=True,
                 max_model_len=max_seq_length,
                 tensor_parallel_size=tensor_parallel_size,
                 enable_chunked_prefill=False,
                 trust_remote_code=trust_remote_code,
                 swap_space=64,
-                kv_transfer_config=kv_transfer_config,
             )
+            if enable_prefix_caching is not None:
+                llm_kwargs["enable_prefix_caching"] = enable_prefix_caching
+            if kv_transfer_config is not None:
+                llm_kwargs["kv_transfer_config"] = kv_transfer_config
+            if gpu_mem is not None:
+                llm_kwargs["gpu_memory_utilization"] = gpu_mem
+            if num_gpu_blocks_override is not None:
+                llm_kwargs["num_gpu_blocks_override"] = num_gpu_blocks_override
+            if kv_cache_dtype is not None:
+                llm_kwargs["kv_cache_dtype"] = kv_cache_dtype
+            if max_num_seqs is not None:
+                llm_kwargs["max_num_seqs"] = max_num_seqs
+            llm = LLM(**llm_kwargs)
         llm = GreedySearch_vLLM(llm, tok)
     elif attn_type == "vllm_kv":
         llm = LLM(
@@ -335,6 +357,9 @@ if __name__ == "__main__":
         max_seq_length = 160_000
 
     # Model
+    # 僅使用 CLI --hyper_param 提供的鍵值；未提供的參數將不傳給 vLLM，讓其使用內建預設
+    merged_hyper = args.hyper_param.copy() if args.hyper_param else {}
+
     model, tok = load_model(
         model_name,
         args.topk,
@@ -349,7 +374,7 @@ if __name__ == "__main__":
         kv_cache_cpu=args.kv_cache_cpu,
         kv_cache_cpu_device=args.kv_cache_cpu_device,
         tensor_parallel_size=args.tensor_parallel_size,
-        hyper_param=args.hyper_param.copy(),
+        hyper_param=merged_hyper,
     )
 
     disable_golden_context = (

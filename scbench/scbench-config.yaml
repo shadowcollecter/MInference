@@ -1,0 +1,14 @@
+# scbench 專用 vLLM 參數檔（不影響 lmcache 的 cpu-offload.yaml）
+# 這裡放 vLLM 與 kv_transfer 的參數；LMCache 的 LMCACHE_* 交由 cpu-offload.yaml 控制
+
+# vLLM 設定：將 GPU 的 KV 壓到較低並配合 LMCache 取回
+gpu_memory_utilization: 0.25
+num_gpu_blocks_override: 2048
+enable_prefix_caching: false
+kv_cache_dtype: fp8
+max_num_seqs: 32
+
+# KV Transfer 設定：要求使用 LMCacheConnector
+kv_transfer_config:
+  kv_connector: LMCacheConnectorV1
+  kv_role: kv_both

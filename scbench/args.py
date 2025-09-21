@@ -86,4 +86,45 @@ def parse_args() -> Namespace:
     )
     p.add_argument("--is_search", action="store_true")
     p.add_argument("--hyper_param", type=json.loads, default={})
+
+    # 新增：LMCache/vLLM 相關便捷參數（可由 YAML 覆蓋）
+    # 新增（建議）：scbench 專用的 vLLM 參數檔
+    p.add_argument(
+        "--scbench_config",
+        type=str,
+        default="scbench-config.yaml",
+        help="scbench 專用的 vLLM 參數檔（gpu_memory_utilization、num_gpu_blocks_override、kv_transfer_config 等）",
+    )
+    # 新增：LMCache 環境變數檔（請指向給 lmcache 的 cpu-offload.yaml）
+    p.add_argument(
+        "--lmcache_env_file",
+        type=str,
+        default="cpu-offload.yaml",
+        help="lmcache 環境檔（例如 cpu-offload.yaml），用於設定 LMCACHE_* 環境變數",
+    )
+    # 相容：舊的 --lmcache_config（若未提供 scbench_config 時可沿用）
+    p.add_argument(
+        "--lmcache_config",
+        type=str,
+        default=None,
+        help="相容舊參數：若未提供 --scbench_config，將嘗試使用此檔案載入 vLLM 參數",
+    )
+    p.add_argument(
+        "--gpu_blocks_override",
+        type=int,
+        default=None,
+        help="覆寫 vLLM 的 num_gpu_blocks_override（硬限制 KV 區塊數）",
+    )
+    p.add_argument(
+        "--gpu_memory_util",
+        type=float,
+        default=None,
+        help="覆寫 vLLM 的 gpu_memory_utilization（軟限制 GPU 記憶體比例）",
+    )
+    p.add_argument(
+        "--chunk_size",
+        type=int,
+        default=None,
+        help="覆寫 LMCache 的 CHUNK_SIZE（搬運粒度 token 數）",
+    )
     return p.parse_args()

@@ -8,3 +8,4 @@ rouge
 evaluate
 nltk
 rouge_score
+pyyaml
