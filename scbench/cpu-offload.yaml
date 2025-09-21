@@ -1,6 +1,8 @@
 # 256 Tokens per KV Chunk
-chunk_size: 64
+chunk_size: 16
 # Enable CPU memory backend
 local_cpu: true # default
 # 5GB of Pinned CPU memory
-max_local_cpu_size: 2 # default
+max_local_cpu_size: 64 # default
+
+save_decode_cache: true
